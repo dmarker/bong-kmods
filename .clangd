@@ -1,0 +1,8 @@
+CompileFlags:
+    Add:
+        - "-D_KERNEL"
+        - "-D_SYS_KPILITE_H_"
+        - "-DVIMAGE"
+        - "-DINET"
+        - "-DINET6"
+        - "-I.."

@@ -1,0 +1,149 @@
+.\" Copyright (c) 2024 David Marker
+.\" All rights reserved.
+.\"
+.\" Redistribution and use in source and binary forms, with or without
+.\" modification, are permitted provided that the following conditions
+.\" are met:
+.\" 1. Redistributions of source code must retain the above copyright
+.\"    notice, this list of conditions and the following disclaimer.
+.\" 2. Redistributions in binary form must reproduce the above copyright
+.\"    notice, this list of conditions and the following disclaimer in the
+.\"    documentation and/or other materials provided with the distribution.
+.\"
+.\" THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+.\" ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+.\" IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+.\" ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+.\" FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+.\" DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+.\" OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+.\" HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+.\" LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+.\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+.\" SUCH DAMAGE.
+.\"
+.Dd Oct 15, 2024
+.Dt NG_ULA4TAG 4
+.Os
+.Sh NAME
+.Nm ng_ula4tag
+.Nd M_VLANTAG out of band tagging netgraph node type
+.Sh SYNOPSIS
+.In sys/types.h
+.In netgraph.h
+.In netgraph/ng_ula4tag.h
+.Sh DESCRIPTION
+The
+.Nm ula4tag
+node type can add M_VLANTAG tags to frames that are IPv6 ULA or IPv4
+.Pp
+Each node has two hooks,
+.Va tag
+and
+.Va untag .
+Traffic entering the
+.Va tag
+hook that is IPv4 will have the configured
+.Va ip4tag
+applied before sending out the
+.Va untag
+hook. Traffic entering the
+.Va tag
+hook that is IPv6 that is a GUA is left untagged. But if it is a
+ULA address will have the configured
+.Va ulatag
+applied before sending out the
+.Va untag
+hook. IPv6 that is a LL address will be sent out with and without the
+.Va ulatag .
+This allows you to get to all interfaces with link local. Likewise
+any IPv6 multicast traffic will be sent to both hooks, allowing for
+multiple
+.Va Router Advertisements
+to respond to
+.Va Router Solicitations .
+.Pp
+Traffic arriving on the
+.Va untag 
+hook will have both
+.Va M_VLANTAG
+and
+.Va IEEE 802.1Q VLAN
+tags removed before sending out the
+.Va
+tag
+hook.
+.Sh HOOKS
+This node type supports the following hooks:
+.Bl -tag -width "untag"
+.It Va tag
+Typically this hook would be connected to a
+.Xr ng_ether 4
+node, using the
+.Va lower
+hook.
+.It Va untag
+Typically this hook would also be connected to an
+.Xr ng_bridge 4
+type node using the
+.Va upper
+hook or an
+.Xr ng_vlan 4
+type node using the
+.Va downstream hook.
+.El
+.Sh CONTROL MESSAGES
+This node type supports the generic control messages, plus the following:
+.Bl -tag -width foo
+.It Dv NGM_ULA4TAG_GET_CONFIG Pq Ic getconfig
+Returns the current configuration as a struct
+.Vt "struct ng_ula4tag_config" .
+.It Dv NGM_ULA4TAG_SET_CONFIG Pq Ic setconfig
+Set the node configuration.
+This command takes a
+.Vt "struct ng_ula4tag_config" .
+as an argument:
+.Bd -literal -offset 0n
+/* Node configuration structure */
+struct ng_ula4tag_config {
+  uint16_t    ulatag;  /* tag for ULA traffic */
+  uint16_t    ip4tag;  /* tag for IPv4 traffic */
+};
+.Ed
+.Pp
+Either
+.Va ulatag
+or
+.Va
+ip4tag
+may be 0 to indicate no tagging or 0xFFF to indicate it should be dropped.
+.Pp
+The values 1-4094 will result in an
+.Va
+M_VLANTAG
+being applied when traffic matches.
+.Ed
+.El
+.Sh SHUTDOWN
+This node shuts down upon receipt of a
+.Dv NGM_SHUTDOWN
+control message, or when both hooks have been disconnected.
+.Sh FILES
+.Bl -tag -width XXXXXXXX -compact
+.It Pa /usr/share/examples/netgraph/split4ula
+Example script showing how to use tags to split a /64 network using this node.
+.Sh SEE ALSO
+.Xr netgraph 4 ,
+.Xr ng_eiface 4 ,
+.Xr ng_ether 4 ,
+.Xr ng_vlan 4 ,
+.Xr ng_bridge 4 ,
+.Xr ngctl 8 ,
+.Xr nghook 8
+.Sh HISTORY
+The
+.Nm
+node type appeared in
+.Fx 15.0 .
+.Sh AUTHORS
+.An David Marker Aq Mt dave@freedave.net

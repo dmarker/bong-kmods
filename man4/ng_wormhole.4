@@ -1,0 +1,213 @@
+.\"
+.\" Copyright (c) 2025 David Marker <dave@freedave.net>
+.\"
+.\" SPDX-License-Identifier: BSD-2-Clause
+.\"
+.Dd April 9, 2025
+.Dt NG_WORMHOLE 4
+.Os
+.Sh NAME
+.Nm ng_wormhole
+.Nd "vnet traversing netgraph node type"
+.Sh SYNOPSIS
+.In netgraph/ng_wormhole.h
+.Sh DESCRIPTION
+The
+.Vt wormhole
+node type forwards packets from one
+.Xr vnet 9
+to another.
+To send packets a
+.Vt wormhole
+pair must be established.
+This is done by first creating an
+.Vt wormhole
+in one
+.Xr vnet 9 ,
+and then sending the
+.Ar open
+message with the name of the jail whose
+.Xr vnet 9
+you wish to have connected.
+The connection is established when a
+.Xr netgraph 4
+node from each
+.Xr vnet 9
+is then connected to the
+.Ar evthorizon
+hook of the
+.Vt wormhole .
+.Pp
+There is no limit to the number of
+.Vt wormholes
+that may be created, but each side of an opened wormhole allows exactly one
+connection.
+It has another hook called the
+.Ar warp ,
+but it is only created by the act of opening the wormhole.
+As a convenience the
+.Ar warp
+hooks are labeled with the jail ID of the other side of a wormhole.
+With a jail ID and a
+.Xr netgraph 4
+node ID from one wormhole you can find the other side to attach
+to.
+.Pp
+.Vt wormholes
+are not persistent, but when you
+.Ar open
+the
+.Vt wormhole
+each side has a reference to the other and that prevents either from closing.
+This allows disconnecting and reconnecting to the
+.Ar evthorizon .
+This is useful to change configuration, perhaps insert an
+.Xr ng_pipe 4
+for testing or an
+.Xr ng_vlan 4
+if required.
+This can be done on either or both sides.
+Once a
+.Vt wormhole
+has been opened it will only go away with an explicit
+.Ar shutdown
+message, when the
+.Xr vnet 9
+is removed (the jail is shutdown), or its peer experienced one
+of these conditions.
+.Pp
+There are no other messages, and there are no statistics in order
+to keep overhead from the
+.Vt wormhole
+to a minimum.
+.Pp
+Any node can be connected to the
+.Ar evthorizon ,
+including another
+.Vt wormhole
+via its
+.Ar evthorizon ,
+with one restriction.
+Connecting the event horizons of wormholes collapses two pairs into a single
+pair, which is only possible if the far side (the nodes not being connected)
+reside in a different
+.Xr vnet 9
+from each other.
+This can be used to connect unrelated peer jails via
+.Vt wormhole
+similar to what you might do with
+.Xr epair 4 .
+.Sh CONTROL MESSAGES
+This node type supports the generic control messages, plus the following:
+.Bl -tag -width foo
+.It Dv NGM_WORMHOLE_OPEN Pq Ic open
+This command may be given only to an unopened
+.Nm wormhole ,
+once a
+.Nm wormhole
+pair is established it can not be closed or re-opened.
+This requires a string for the jail name or ID be provided.
+That jail must have a
+.Xr vnet 9
+and it must be different from the
+.Xr vnet 9
+where the original
+.Nm wormhole
+resides.
+.El
+.Sh EXAMPLES
+You need to open the wormhole before disconnecting or it will disappear.
+.Bd -literal -offset 4n
+#!/bin/sh
+
+ngctl -f- << EOF
+mkpeer wormhole w evthorizon
+name .:w wh0a
+msg wh0a: open "testjail"
+EOF
+.Ed
+.Pp
+Once open you will need to
+.Ar show
+the
+.Nm wormhole
+to see the ID of the other side.
+.Bd -literal -offset 4n
+#!/bin/sh
+
+ngctl show wh0a:
+
+Name: wh0a            Type: wormhole        ID: 0000002c   Num hooks: 1
+  Local hook      Peer name       Peer type    Peer ID         Peer hook
+  ----------      ---------       ---------    -------         ---------
+  jid=4           <unnamed>       wormhole     00000013        jid=0
+.Ed
+.Pp
+This shows that you created
+.Ar wh0a
+with ID
+.Ar 0000002c
+and opened the other side in the jail with ID
+.Ar 4
+and its
+.Xr netgraph 4
+ID in that jail's
+.Xr vnet 9
+is
+.Ar 00000013 .
+You now have enough information to name the other side.
+.Bd -literal -offset 4n
+#!/bin/sh
+
+jexec 4 ngctl name [00000013]: wh0b
+.Ed
+.Pp
+Finally to make use of this pair you need to connect
+.Ar wh0a
+and
+.Ar wh0b
+to
+.Xr netgraph 4
+nodes, possibly by creating them.
+.Bd -literal -offset 4n
+#!/bin/sh
+
+ngctl -f- << EOF
+mkpeer wh0a: eiface evthorizon ether
+name wh0a:evthorizon tst0a
+EOF
+
+ifn=$(ngctl msg tst0a: getifname | sed '1d' | cut -d\\" -f2)
+ifconfig name $ifn tst0a
+
+jexec testjail ngctl -f- << EOF
+mkpeer wh0b: eiface evthorizon ether
+name wh0b:evthorizon tst0b
+EOF
+
+ifn=$(jexec testjail ngctl msg tst0b: getifname | sed '1d' | cut -d\\" -f2)
+ifconfig -j testjail name $ifn tst0b
+.Ed
+.Pp
+The
+.Xr ng_eiface 4
+.Pq  Cm tst0a and Cm tst0b
+can now be configured and used for networking between vnets.
+.Sh SHUTDOWN
+This node shuts down upon receipt of a
+.Dv NGM_SHUTDOWN
+control message, or when all hooks have been disconnected.
+.Sh SEE ALSO
+.Xr epair 4 ,
+.Xr netgraph 4 ,
+.Xr ng_eiface 4 ,
+.Xr jexec 8 ,
+.Xr ngctl 8 ,
+.Xr vnet 9
+.Sh HISTORY
+The
+.Nm
+node type was implemented in
+.Fx 15.0 .
+.Sh AUTHORS
+.An David Marker Aq Mt dave@freedave.net

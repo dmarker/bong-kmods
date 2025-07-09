@@ -1,0 +1,8 @@
+*.o
+*.ko
+*.gz
+export_syms
+i386
+machine
+opt_global.h
+x86
