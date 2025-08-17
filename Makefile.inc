@@ -8,11 +8,3 @@
 .if defined(INVARIANTS)
 CFLAGS+=-DINVARIANT_SUPPORT -DINVARIANTS
 .endif
-
-# surprisingly not in  opt_global.h
-.if !defined(INET) || ${INET} != 0
-CFLAGS += -DINET
-.endif
-.if !defined(INET6) || ${INET6} != 0
-CFLAGS += -DINET6
-.endif

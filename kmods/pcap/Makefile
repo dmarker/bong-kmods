@@ -7,6 +7,9 @@
 KMOD=	ng_pcap
 SRCS=	ng_pcap.c
 
+SRCS+=	opt_inet.h
+SRCS+=	opt_inet6.h
+
 .PATH:  ${.CURDIR}/../../netgraph
 CFLAGS+=-I${.CURDIR}/../..
 
