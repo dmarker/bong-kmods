@@ -4,10 +4,12 @@
 # SPDX-License-Identifier: BSD-2-Clause
 #
 
-# The kernel modules go with all the others in /boot/modules
-# XXX so where do man pages and inclues go? LOCABASE?
-#LOCALBASE?=/usr/local
-#SHAREDIR=${LOCALBASE}/share
+# kernel modules go with all the other (out of tree) modules in /boot/modules
+LOCALBASE?=/usr/local
+SHAREDIR=${LOCALBASE}/share
+
+DIRS+=	MAN4
+MAN4=	${MANDIR}4
 
 MAN=	\
 	ng_ula4tag.4 \
