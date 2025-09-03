@@ -5,7 +5,12 @@
 #
 
 # XXX should this be /usr/local/include/netgraph ??
-INCSDIR= /usr/include/netgraph
+
+LOCALBASE?=/usr/local
+INCSDIR= ${LOCALBASE}/include/netgraph
+
+DIRS+=	INCSDIR
+
 INCS=	\
 	ng_pcap.h	\
 	ng_ula4tag.h	\

@@ -87,23 +87,27 @@
  * fake ethernet MAC address for example.
  */
 struct ng_pcap_config {
-	int32_t			snaplen;
+	uint8_t		persistent;
+	int32_t		snaplen;
 };
 
 /* Keep this in sync with the above structure definition */
-#define NG_PCAP_CONFIG_TYPE_INFO	{			\
+#define NG_PCAP_CONFIG_TYPE_INFO			{	\
+	  { "persistent",	&ng_parse_uint8_type	},	\
 	  { "snaplen",		&ng_parse_int32_type	},	\
-	  { NULL }						\
+	  { NULL					}	\
 }
 
-/* valid packet_types (although you can't set "<unset>") */
-#define	HOOK_PKT_UNSET		"<unset>"
+/*
+ * Valid packet_types, `none` means it is dropped. This is how they all start
+ * and how you can turn off a source while snooping.
+ */
+#define	HOOK_PKT_UNSET		"none"
 #define	HOOK_PKT_ETHER		"ether"
 #define	HOOK_PKT_INET		"inet"
-#define	HOOK_PKT_INET4		HOOK_PKT_INET
 #define	HOOK_PKT_INET6		"inet6"
 
-#define NG_PCAP_PKT_TYPE_LENGTH	16
+#define NG_PCAP_PKT_TYPE_LENGTH	8
 
 struct ng_pcap_set_source_type {
 	char	hook_name[NG_HOOKSIZ];
@@ -113,7 +117,8 @@ struct ng_pcap_set_source_type {
 /* Keep this in sync with the above structure definition */
 #define	NG_PCAP_SET_SOURCE_TYPE_FIELDS(pkttype) {	\
 	{ "hook",	&ng_parse_hookbuf_type	},	\
-	{ "type",	(pkttype)		}	\
+	{ "type",	(pkttype)		},	\
+	{ NULL					}	\
 }
 
 /* Netgraph commands understood by this node type */
@@ -122,16 +127,7 @@ enum {
 	NGM_PCAP_SET_CONFIG,
 	NGM_PCAP_GET_SOURCE_TYPE,
 	NGM_PCAP_SET_SOURCE_TYPE,
+	NGM_PCAP_SET_PERSISTENT,
 };
-
-/* Taken from "pcap.h", which is fortunately very stable. */ 
-#ifdef _KERNEL
-struct pcap_pkthdr {
-	uint32_t tv_sec;
-	uint32_t tv_usec;
-	uint32_t caplen;	/* length of portion present */
-	uint32_t len;		/* length of this packet (off wire) */
-};
-#endif /* _KERNEL */
 
 #endif /* _NETGRAPH_NG_PCAP_H_ */

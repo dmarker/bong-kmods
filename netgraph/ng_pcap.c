@@ -100,26 +100,49 @@ static const struct ng_cmdlist ng_pcap_cmdlist[] = {{
 
 typedef struct ng_pcap_config cfg_t;
 
+/* pcap structures are really stable and these are for the version we use */
+typedef struct {
+	uint32_t tv_sec;
+	uint32_t tv_usec;
+	uint32_t caplen;	/* length of portion present */
+	uint32_t len;		/* length of this packet (off wire) */
+} pcap_pkthdr_t;
+
+typedef struct {
+	uint32_t	magic;
+	uint16_t	major;
+	uint16_t	minor;
+	int32_t		thiszone;
+	uint32_t	sigfigs;
+	uint32_t	snaplen;
+	uint32_t	linktype;
+} pcap_hdr_t;
+
+typedef struct {
+	const char * const	display;
+	ng_rcvdata_t*		function;
+} hookmap_t;
+
 /* module level globals */
 static struct {
-	const char * const unset;
-	const char * const ether;
-	const char * const inet4;
-	const char * const inet6;
 	struct {
 		const struct ether_header *inet4;
 		const struct ether_header *inet6;
 	} ethhdr;
+	pcap_hdr_t pcaphdr;
 	struct {
 		const char * const	prefix;
 		const size_t		len;
 	} link_pfxs[2];
+	hookmap_t hookmap[];
 } G = {
-	.unset = HOOK_PKT_UNSET,
-	.ether = HOOK_PKT_ETHER,
-	.inet4 = HOOK_PKT_INET4,
-	.inet6 = HOOK_PKT_INET6,
 	.ethhdr = { NULL, NULL }, /* modinit fills in */
+	.pcaphdr = {
+		.magic = 0xA1B2C3D4,	/* TCPDUMP_MAGIC */
+		.major = 2,
+		.minor = 4,
+		.linktype = 0x1		/* LINKTYPE_ETHERNET */
+	},
 	.link_pfxs = {{
 		.prefix = NG_PCAP_HOOK_SOURCE,
 		.len = sizeof(NG_PCAP_HOOK_SOURCE) - 1
@@ -127,42 +150,27 @@ static struct {
 		.prefix = NG_PCAP_HOOK_SNOOP,
 		.len = sizeof(NG_PCAP_HOOK_SNOOP) - 1
 	}},
+	.hookmap = {{
+		.display = HOOK_PKT_UNSET,
+		.function = (ng_rcvdata_t *) NULL
+	},{
+		.display = HOOK_PKT_ETHER,
+		.function = ng_pcap_rcvdata_ether,
+#ifdef INET
+	},{
+		.display = HOOK_PKT_INET,
+		.function = ng_pcap_rcvdata_inet4,
+#endif
+#ifdef INET6
+	},{
+		.display = HOOK_PKT_INET6,
+		.function = ng_pcap_rcvdata_inet6,
+#endif
+	},{
+		.display = NULL,
+		.function = (ng_rcvdata_t *) NULL
+	}}
 };
-
-static __inline const char * const
-hook2type(hook_p hook)
-{
-	if (hook->hk_rcvdata == NULL)
-		return (G.unset);
-	if (hook->hk_rcvdata == ng_pcap_rcvdata_ether)
-		return (G.ether);
-#	ifdef INET
-	if (hook->hk_rcvdata == ng_pcap_rcvdata_inet4)
-		return (G.inet4);
-#	endif
-#	ifdef INET6
-	if (hook->hk_rcvdata == ng_pcap_rcvdata_inet6)
-		return (G.inet6);
-#	endif
-	return (NULL);
-}
-
-
-static __inline ng_rcvdata_t *
-type2rcvdata(const char * const pkt_string)
-{
-	if (strncmp(G.ether, pkt_string, NG_PCAP_PKT_TYPE_LENGTH) == 0)
-		return (ng_pcap_rcvdata_ether);
-#	ifdef INET
-	if (strncmp(G.inet4, pkt_string, NG_PCAP_PKT_TYPE_LENGTH) == 0)
-		return (ng_pcap_rcvdata_inet4);
-#	endif
-#	ifdef INET6
-	if (strncmp(G.inet6, pkt_string, NG_PCAP_PKT_TYPE_LENGTH) == 0)
-		return (ng_pcap_rcvdata_inet6);
-#	endif
-	return (NULL);
-}
 
 enum pfx_idx {
 	PFX_ERR = -1,
@@ -248,6 +256,7 @@ ng_pcap_newhook(node_p node, hook_p hook, const char *name)
 			rc = EISCONN;
 		else
 			priv->snoop = hook;
+			NG_HOOK_SET_PRIVATE(hook, (void *)(uintptr_t)0x1);
 		break;
 	case PFX_SRC: {
 		const size_t	 len = G.link_pfxs[idx].len;
@@ -319,6 +328,7 @@ ng_pcap_rcvmsg(node_p node, item_p item, hook_p lasthook)
 		}
 		case NGM_PCAP_GET_SOURCE_TYPE: {
 			hook_p hook;
+			hookmap_t *iter;
 
 			if (msg->header.arglen != NG_HOOKSIZ) {
 				error = EINVAL;
@@ -330,25 +340,34 @@ ng_pcap_rcvmsg(node_p node, item_p item, hook_p lasthook)
 				error = ENOENT;
 				break;
 			} else {
-				const char * const pkt_type = hook2type(hook);
+				for (
+					iter = &G.hookmap[0];
+					iter->display != NULL &&
+					iter->function != hook->hk_rcvdata;
+					iter++
+				);
 
-				MPASS(pkt_type != NULL);
+				MPASS(iter->display != NULL);
 
-				NG_MKRESPONSE(resp, msg,
-				    NG_PCAP_PKT_TYPE_LENGTH, M_NOWAIT);
+				NG_MKRESPONSE(
+					resp, msg, NG_PCAP_PKT_TYPE_LENGTH, M_NOWAIT
+				);
 				if (resp == NULL) {
 					error = ENOMEM;
 					break;
 				}
 
-				strncpy(resp->data, pkt_type,
-				    NG_PCAP_PKT_TYPE_LENGTH);
+				strncpy(
+					resp->data, iter->display,
+					NG_PCAP_PKT_TYPE_LENGTH
+				);
 				resp->data[NG_PCAP_PKT_TYPE_LENGTH - 1] = '\0';
 			}
 			break;
 		}
 		case NGM_PCAP_SET_SOURCE_TYPE: {
 			hook_p hook;
+			hookmap_t *iter;
 			struct ng_pcap_set_source_type *st;
 
 			if (msg->header.arglen != sizeof(*st)) {
@@ -362,14 +381,22 @@ ng_pcap_rcvmsg(node_p node, item_p item, hook_p lasthook)
 				error = ENOENT;
 				break;
 			} else {
-				ng_rcvdata_t	*rcvdata = type2rcvdata(
-					st->packet_type
+				for (
+					iter = &G.hookmap[0];
+					iter != NULL &&
+					strncmp(
+						iter->display,
+						st->packet_type,
+						NG_PCAP_PKT_TYPE_LENGTH
+					);
+					iter++
 				);
-				if (rcvdata == NULL) {
+
+				if (iter->function == NULL) {
 					error = EINVAL;
 					break;
 				} else {
-					NG_HOOK_SET_RCVDATA(hook, rcvdata);
+					NG_HOOK_SET_RCVDATA(hook, iter->function);
 				}
 			}
 			break;
@@ -407,6 +434,43 @@ m_chk(struct mbuf **mp, int len)
 	return (0);
 }
 
+
+/*
+ * Before queueing the first packet out a fresh `snoop` connection we have to
+ * add the PCAP file header as well.
+ */
+static __inline int
+ng_pcap_send_snoop(priv_p priv, item_p item, struct mbuf *m)
+{
+	int error = 0;
+	pcap_hdr_t *hdr;
+
+	if (priv->snoop == NULL || NG_HOOK_PRIVATE(priv->snoop) == NULL) {
+		NG_FWD_NEW_DATA_FLAGS(error, item, priv->snoop, m, HK_QUEUE);
+		return (error);
+	}
+
+	M_PREPEND(m, sizeof(G.pcaphdr), M_NOWAIT);
+	if (m == NULL)
+		error = ENOMEM;
+	else
+		error = m_chk(&m, sizeof(*hdr));
+	if (error != 0) {
+		NG_FREE_ITEM(item);
+		return (error);
+	}
+
+	hdr = mtod(m, pcap_hdr_t *);
+	*hdr = G.pcaphdr;
+	hdr->snaplen = priv->cfg.snaplen; /* only value that must be changed */
+
+	NG_FWD_NEW_DATA_FLAGS(error, item, priv->snoop, m, HK_QUEUE);
+	if (error == 0)
+		NG_HOOK_SET_PRIVATE(priv->snoop, NULL);
+
+	return (error);
+}
+
 /*
  * In addition to adding the pcap header we need to check mbuf for a VLAN tag.
  * If present we need to put it back into the data.
@@ -415,12 +479,12 @@ static int
 ng_pcap_rcvdata_ether(hook_p hook, item_p item)
 {
 	const node_p	node = NG_HOOK_NODE(hook);
-	const priv_p priv = NG_NODE_PRIVATE(node);
-	struct mbuf *m;
-	struct pcap_pkthdr hdr, *phdr = NULL;
-	int error = 0;
-	struct timeval timestamp;
-	int32_t trim;
+	const priv_p	priv = NG_NODE_PRIVATE(node);
+	struct mbuf	*m;
+	pcap_pkthdr_t	hdr, *phdr = NULL;
+	int		error = 0;
+	struct timeval	timestamp;
+	int32_t		trim;
 
 	NGI_GET_M(item, m);
 
@@ -463,7 +527,7 @@ ng_pcap_rcvdata_ether(hook_p hook, item_p item)
 
 	}
 
-	/* vlan tag counts, but pcap_pkthdr does not */
+	/* vlan tag counts, but pcap_pkthdr_t does not */
 	hdr.len = (uint32_t)m->m_pkthdr.len - (uint32_t)sizeof(*phdr); /* pre m_adj */
 
 	/* make sure we don't exceed snaplen */
@@ -476,16 +540,10 @@ ng_pcap_rcvdata_ether(hook_p hook, item_p item)
 	hdr.tv_sec = timestamp.tv_sec;
 	hdr.tv_usec = timestamp.tv_usec;
 
-	phdr = mtod(m, struct pcap_pkthdr *);
+	phdr = mtod(m, pcap_pkthdr_t *);
 	*phdr = hdr;
 
-	/* nope it is 16 bytes not 8 */
-	//printf("sizeof(struct timeva) = %lu\n", sizeof(struct timeval));
-	//printf("pkt: caplen=%d, len=%d\n", hdr.caplen, hdr.len);
-	//printf("pktx: caplen=%d, len=%d\n", phdr->caplen, phdr->len);
-
-	NG_FWD_NEW_DATA_FLAGS(error, item, priv->snoop, m, HK_QUEUE);
-	return (error);
+	return ng_pcap_send_snoop(priv, item, m);
 }
 
 
@@ -494,20 +552,20 @@ ng_pcap_rcvdata_ether(hook_p hook, item_p item)
  * This adds 2 things: pcap header and a fake ethernet header.
  * In addition to potential confusion (why we chose obvious MAC addrs), we lose
  * ETHER_ADDR_LEN bytes of capture when packets exceed snaplen. That is just how
- * tcpdump wants it calculated, for whole record after the `struct pcap_pkthdr`.
+ * tcpdump wants it calculated, for whole record after the `pcap_pkthdr_t`.
  * Six bytes is a small trade to be able to have both my level 2 and level3
  * together in a single capture.
  */
 static int
 ng_pcap_rcvdata_inet(hook_p hook, item_p item, const struct ether_header *eh)
 {
-	const node_p		node = NG_HOOK_NODE(hook);
-	const priv_p		priv = NG_NODE_PRIVATE(node);
-	struct mbuf		*m;
-	struct pcap_pkthdr	hdr, *phdr = NULL;
-	struct timeval		timestamp;
-	int			error = 0;
-	int32_t			trim;
+	const node_p	node = NG_HOOK_NODE(hook);
+	const priv_p	priv = NG_NODE_PRIVATE(node);
+	struct mbuf	*m;
+	pcap_pkthdr_t	hdr, *phdr = NULL;
+	struct timeval	timestamp;
+	int		error = 0;
+	int32_t		trim;
 
 	NGI_GET_M(item, m);
 
@@ -535,13 +593,12 @@ ng_pcap_rcvdata_inet(hook_p hook, item_p item, const struct ether_header *eh)
 	hdr.tv_sec = timestamp.tv_sec;
 	hdr.tv_usec = timestamp.tv_usec;
 
-	phdr = mtod(m, struct pcap_pkthdr *);
+	phdr = mtod(m, pcap_pkthdr_t *);
 	*phdr = hdr;
 
 	memcpy(mtodo(m, sizeof(*phdr)), eh, sizeof(*eh));
 
-	NG_FWD_NEW_DATA_FLAGS(error, item, priv->snoop, m, HK_QUEUE);
-	return (error);
+	return ng_pcap_send_snoop(priv, item, m);
 }
 #endif
 
@@ -614,7 +671,7 @@ ng_pcap_disconnect(hook_p hook)
 	}
 
 	priv->snoop = NULL;
-	if (NG_NODE_IS_VALID(node))
+	if (!priv->cfg.persistent && NG_NODE_IS_VALID(node))
 		ng_rmnode_self(node);
 
 	return (0);
