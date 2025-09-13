@@ -159,7 +159,7 @@ You now have enough information to name the other side.
 .Bd -literal -offset 4n
 #!/bin/sh
 
-jexec 4 ngctl name [00000013]: wh0b
+ngctl -j 4 name [00000013]: wh0b
 .Ed
 .Pp
 Finally to make use of this pair you need to connect
@@ -180,12 +180,12 @@ EOF
 ifn=$(ngctl msg tst0a: getifname | sed '1d' | cut -d\\" -f2)
 ifconfig name $ifn tst0a
 
-jexec testjail ngctl -f- << EOF
+ngctl -j testjail -f- << EOF
 mkpeer wh0b: eiface evthorizon ether
 name wh0b:evthorizon tst0b
 EOF
 
-ifn=$(jexec testjail ngctl msg tst0b: getifname | sed '1d' | cut -d\\" -f2)
+ifn=$(ngctl -j testjail msg tst0b: getifname | sed '1d' | cut -d\\" -f2)
 ifconfig -j testjail name $ifn tst0b
 .Ed
 .Pp
@@ -201,7 +201,6 @@ control message, or when all hooks have been disconnected.
 .Xr epair 4 ,
 .Xr netgraph 4 ,
 .Xr ng_eiface 4 ,
-.Xr jexec 8 ,
 .Xr ngctl 8 ,
 .Xr vnet 9
 .Sh HISTORY
