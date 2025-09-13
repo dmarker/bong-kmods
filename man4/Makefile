@@ -12,6 +12,7 @@ DIRS+=	MAN4
 MAN4=	${MANDIR}4
 
 MAN=	\
+	ng_pcap.4 \
 	ng_ula4tag.4 \
 	ng_wormhole.4
 

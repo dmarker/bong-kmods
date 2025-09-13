@@ -1,0 +1,252 @@
+.\"
+.\" Copyright (c) 2025 David Marker <dave@freedave.net>
+.\"
+.\" SPDX-License-Identifier: BSD-2-Clause
+.\"
+.Dd September 9, 2025
+.Dt NG_PCAP 4
+.Os
+.Sh NAME
+.Nm ng_pcap
+.Nd "packet capturing netgraph node type"
+.Sh SYNOPSIS
+.In netgraph/ng_pcap.h
+.Sh DESCRIPTION
+The
+.Vt pcap
+node type accepts
+.Dv NG_PCAP_MAX_LINKS
+source connections and one snoop connection to receive all the packet captures.
+All source connections must be configured to be one of:
+.Bl -bullet -compact
+.It
+ether
+.It
+inet
+.It
+inet6
+.El
+.Nm
+adds the appropriate
+.Xr pcap 3
+header based on the link configuration.
+For
+.Dv ether
+all 802.1q VLAN tags will be placed inline.
+For
+.Dv inet
+and
+.Dv inet6
+fake ethernet headers will be created.
+This allows both layer 2 and layer 3 data to be combined.
+.Pp
+The
+.Dv snoop
+link is meant to be connected to an
+.Xr ng_socket 4
+and can be used with
+.Xr nghook 8 .
+The default snaplen is set to match
+.Xr nghook 8
+and is smaller than both the default and maximum size of
+.Xr tcpdump 1
+but may be configured larger (although
+.Xr nghook 8
+has no way to handle larger sizes).
+.Sh HOOKS
+This node type supports the following hooks:
+.Bl -tag -width "foo"
+.It Dv snoop
+This is the link that receives all the PCAP data including an initial PCAP
+file header.
+It discards any data you send it.
+Once this is connected you can't change the configuration.
+.It Dv source<n>
+Where n is in the range [0,
+.Dv NG_PCAP_MAX_LINKS )
+can be connected.
+Each will need to be configured before PCAP data is sent on to snoop.
+.El
+.Sh CONTROL MESSAGES
+This node type supports the generic control messages, plus the following:
+.Bl -tag -width foo
+.It Dv NGM_PCAP_GET_CONFIG Pq Ic getconfig
+Returns the current configuration as a
+.Vt "struct ng_pcap_config" .
+.It Dv NGM_PCAP_SET_CONFIG Pq Ic setconfig
+Set the node configuration.
+This command takes a
+.Vt "struct ng_pcap_config"
+as an argument:
+.Bd -literal -offset 0n
+/* Node configuration structure */
+struct ng_pcap_config {
+	uint8_t		persistent;
+	int32_t		snaplen;
+};
+.Ed
+.Pp
+If
+.Va persistent
+is not the default of 0, the node will not automatically shutdown when the
+.Va snoop
+link is disconnected.
+.Va snaplen
+determines how much of each packet is captured as it does for
+.Xr tcpdump 1 .
+This includes any fake headers that may be added.
+The default is set to the best value for
+.Xr nghook 8 .
+The minimimum allowed is
+.Va NG_PACP_MIN_SNAPLEN
+and the maximum is
+.Va NG_PACP_MAX_SNAPLEN .
+.It Dv NGM_PCAP_GET_SOURCE_TYPE Pq Ic getsourcetype
+This command takes a
+.Dv ng_parse_hookbuf_type ,
+which is the name of one of the
+.Va source
+hooks, e.g.:
+.Va source0 .
+It returns a fixed length string of
+.Dv NG_PCAP_PKT_TYPE_LENGTH
+indicating how it is currently treating packets.
+This will be one of:
+.Bl -tag -width foo
+.It Dv HOOK_PKT_UNSET Pq Ic none
+The default value for new
+.Va source
+links.
+You can also set any link to this to stop capturing packets temporarily.
+.It Dv HOOK_PKT_ETHER Pq Ic ether
+You should set any link that is passing layer 2 traffic to this.
+.It Dv HOOK_PKT_INET Pq Ic inet
+Provided you compiled with
+.Va INET
+defined, you can set any link passing TCP/IP packets to this value.
+This will add a fake ethernet frame to the packet and does count against your
+.Va snaplen .
+.It Dv HOOK_PKT_INET6 Pq Ic inet6
+Provided you compiled with
+.Va INET6
+defined, you can set any link passing TCP/IP version 6 packets to this value.
+This will add a fake ethernet frame to the packet and does count against your
+.Va snaplen .
+.El
+.It Dv NGM_PCAP_SET_SOURCE_TYPE Pq Ic setsourcetype
+Unlike configuration which can not be changed after
+.Va snoop
+is connected, you can change a source type at any time.
+This is useful for temporarily disabling a pcap
+.Va source
+link.
+This command takes a
+.Vt "struct ng_pcap_set_source_type"
+as an argument:
+.Bd -literal -offset 0n
+/* source configuration structure */
+struct ng_pcap_config {
+	char	hook[NG_HOOKSIZ];
+	char	type[NG_PCAP_PKT_TYPE_LENGTH];
+};
+.Ed
+.Pp
+.Va hook
+is the name of the
+.Va source
+link you want to set.
+.Va type
+is one of the strings returned by
+.Dv NGM_PCAP_GET_SOURCE_TYPE
+above.
+.El
+.Sh EXAMPLES
+The minimum example is not very useful but it does show how to put all the
+pieces togehter.
+For this we will use an
+.Xr ng_tee 4 ,
+which is almost always what you want with
+.Nm ,
+and an
+.Xr ng_iface 4 .
+This example creates this configuration:
+.Bd -literal -offset indent
+
+               right2left ---+  +--------------------+
+                             |  | left2right         | source0
+  +----------+            +--+--+--+            +----+----+
+  | ng_iface |            | ng_tee |            | ng_pcap |
+  | foo0     |            | tee0   |            | pcap0   |
+  +----+-----+            +--+--+--+            +---------+
+       | source0        left |  |
+       +---------------------+  +--- right
+
+.Ed
+.Pp
+The interface is not connected to anything but that won't prevent us from
+using it to capture packets.
+.Bd -literal -offset 4n
+#!/bin/sh
+
+ngctl -f- << EOF
+mkpeer .: iface i inet
+name .:i foo0
+disconnect .: i
+mkpeer foo0: tee inet left
+name foo0:inet tee0
+mkpeer tee0: pcap left2right source0
+name tee0:left2right pcap0
+msg pcap0: setconfig { persistent=1 snaplen=1500 }
+msg pcap0: setsourcetype { hook="source0" type="inet" }
+EOF
+.Ed
+.Pp
+Before using you need to configure the interface.
+.Bd -literal -offset 4n
+#!/bin/sh
+
+ifn=$(ngctl msg foo0: getifname | tail -1 | cut -d\\" -f2)
+ifconfig $ifn name foo0
+ifconfig foo0 inet 192.168.128.1 192.168.128.2 up
+.Ed
+.Pp
+Finally we can use
+.Xr nghook 8
+along with
+.Xr tcpdump 1
+to test our
+.Va pcap0 :
+.Bd -literal -offset 4n
+#!/bin/sh
+
+nghook -n pcap0: snoop | /usr/sbin/tcpdump -r -
+.Ed
+.Pp
+you will of course need to issue a ping to see traffic:
+.Bd -literal -offset 4n
+#!/bin/sh
+
+ping 192.168.128.2
+.Ed
+.Sh SHUTDOWN
+This node shuts down upon receipt of a
+.Dv NGM_SHUTDOWN
+control message.
+If not configured to persist, the default, it also shuts down when the
+.Dv snoop
+link is removed.
+.Sh SEE ALSO
+.Xr tcpdump 1 ,
+.Xr pcap 3 ,
+.Xr ng_iface 4 ,
+.Xr ng_socket 4 ,
+.Xr ng_tee 4 ,
+.Xr ngctl 8 ,
+.Xr nghook 8
+.Sh HISTORY
+The
+.Nm
+node type was implemented in
+.Fx 15.0 .
+.Sh AUTHORS
+.An David Marker Aq Mt dave@freedave.net

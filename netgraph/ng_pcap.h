@@ -67,8 +67,15 @@
 #define NG_PCAP_HOOK_SNOOP	"snoop"
 #define NG_PCAP_HOOK_SOURCE	"source"
 
-/* no point capturing more than tcpdump would use, also default */
+/* no point capturing more than tcpdump would use */
 #define NG_PACP_MAX_SNAPLEN	262144
+
+/*
+ * default size must match nghook(8). ngpcap(8) can set larger.
+ * Also this has to account for the packet header being added.
+ */
+#define NG_PACP_DEFAULT_SNAPLEN	((64 * 1024) - NG_PCAP_PKT_TYPE_LENGTH)
+
 /*
  * Don't see a lower bound in docs. But lets assume it must be at least:
  *	ETHER_VLAN_ENCAP_LEN + 60 (all IPv4 options) + ???
@@ -110,8 +117,8 @@ struct ng_pcap_config {
 #define NG_PCAP_PKT_TYPE_LENGTH	8
 
 struct ng_pcap_set_source_type {
-	char	hook_name[NG_HOOKSIZ];
-	char	packet_type[NG_PCAP_PKT_TYPE_LENGTH];
+	char	hook[NG_HOOKSIZ];
+	char	type[NG_PCAP_PKT_TYPE_LENGTH];
 };
 
 /* Keep this in sync with the above structure definition */
@@ -126,8 +133,7 @@ enum {
 	NGM_PCAP_GET_CONFIG = 1,
 	NGM_PCAP_SET_CONFIG,
 	NGM_PCAP_GET_SOURCE_TYPE,
-	NGM_PCAP_SET_SOURCE_TYPE,
-	NGM_PCAP_SET_PERSISTENT,
+	NGM_PCAP_SET_SOURCE_TYPE
 };
 
 #endif /* _NETGRAPH_NG_PCAP_H_ */
