@@ -4,8 +4,15 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+/*
+ * This odd guard is because these are generated headers.
+ * We have INET/INET6 defined in .clangd and don't rely upon this.
+ * But we *do* want it for builds so this is our workaround
+ */
+#ifndef NOCLANGD
 #include "opt_inet.h"
 #include "opt_inet6.h"
+#endif
 
 #include <sys/param.h>
 #include <sys/systm.h>
