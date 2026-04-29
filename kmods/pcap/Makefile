@@ -13,6 +13,6 @@ SRCS+=	opt_inet6.h
 .PATH:  ${.CURDIR}/../../netgraph
 CFLAGS+=-I${.CURDIR}/../..
 
-.include "${.CURDIR}/../../Makefile.inc"
+.include "${.CURDIR}/../../Makefile.kmod.inc"
 
 .include <bsd.kmod.mk>

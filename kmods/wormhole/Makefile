@@ -10,7 +10,7 @@ SRCS=	ng_wormhole.c
 .PATH:  ${.CURDIR}/../../netgraph
 CFLAGS+=-I${.CURDIR}/../..
 
-.include "${.CURDIR}/../../Makefile.inc"
+.include "${.CURDIR}/../../Makefile.kmod.inc"
 # opts_global.h will set VIMAGE
 
 .include <bsd.kmod.mk>
