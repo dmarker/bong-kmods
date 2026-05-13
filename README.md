@@ -2,6 +2,10 @@
 [11]: https://github.com/dmarker/bong-patches
 [20]: https://en.wikipedia.org/wiki/Unique_local_address
 [30]: https://bugs.freebsd.org/bugzilla/show_bug.cgi?id=286717
+[31]: https://github.com/dmarker/bone
+
+# MOVED
+This contentes of this repo was merged into [bone][31].
 
 # bong
 The "bag o' netgraph" modules is a set of netgraph(4) nodes I maintain out of
